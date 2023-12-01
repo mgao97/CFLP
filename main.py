@@ -84,8 +84,8 @@ def train(args, logger):
     T_f, edges_cf_t1, edges_cf_t0, T_cf, adj_cf = load_t_files(args, T_file, logger, adj_train)
 
     # get the factual node pairs
-    edges_f_t1 = np.asarray((sp.triu(T_f, 1) > 0).nonzero()).T
-    edges_f_t0 = np.asarray(sp.triu(T_f==0, 1).nonzero()).T
+    edges_f_t1 = np.asarray((sp.triu(T_f, 1) > 0).nonzero()).T # 计算T矩阵中值大于0的上三角部分的非零元素的索引
+    edges_f_t0 = np.asarray(sp.triu(T_f==0, 1).nonzero()).T # 计算T矩阵中值等于0的上三角部分的非零元素的索引
     assert edges_f_t1.shape[0] + edges_f_t0.shape[0] == np.arange(adj_label.shape[0]).sum()
     logger.info('Number of edges: F: t=1: {} t=0: {}, CF: t=1: {} t=0: {}'.format(
         edges_f_t1.shape[0], edges_f_t0.shape[0], edges_cf_t1.shape[0], edges_cf_t0.shape[0]))

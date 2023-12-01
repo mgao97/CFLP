@@ -36,7 +36,7 @@ def load_t_files(args, T_file, logger, adj_train):
         logger.info(f'calculated and cached T files: {args.t} {args.k}')
     return T_f, edges_cf_t1, edges_cf_t0, T_cf, adj_cf
 
-def get_t(adj_mat, method, k, selfloop=False):
+def get_t(adj_mat, method, k, selfloop=False): # 计算干预矩阵（社团或者聚类结果）：位于同一个社团的节点对 对应位置是1，否则为0
     adj = copy.deepcopy(adj_mat)
     if not selfloop:
         adj.setdiag(0)
@@ -189,17 +189,17 @@ def get_CF(adj, node_embs, T_f, dist='euclidean', thresh=50, n_workers=20):
     elif dist == 'euclidean':
         # Euclidean distance
         simi_mat = cdist(node_embs, node_embs, 'euclidean')
-    thresh = np.percentile(simi_mat, thresh)
+    thresh = np.percentile(simi_mat, thresh) # 计算相似性矩阵的第thresh个百分位数，并将其作为阈值
     # give selfloop largest distance
-    np.fill_diagonal(simi_mat, np.max(simi_mat)+1)
+    np.fill_diagonal(simi_mat, np.max(simi_mat)+1) # 将相似性矩阵的对角线上的元素设置为最大相似性加1，以避免节点自己成为其最近邻
     # nearest neighbor nodes index for each node
-    node_nns = np.argsort(simi_mat, axis=1)
+    node_nns = np.argsort(simi_mat, axis=1) # 计算每个节点的最近邻节点的索引并按距离从小到大排序
     # find nearest CF node-pair for each node-pair
-    node_pairs = list(combinations(range(adj.shape[0]), 2))
+    node_pairs = list(combinations(range(adj.shape[0]), 2)) # 生成所有节点对的组合列表
     print('This step may be slow, please adjust args.n_workers according to your machine')
-    pool = Pool(n_workers)
-    batches = np.array_split(node_pairs, n_workers)
-    results = pool.map(get_CF_single, [(adj, simi_mat, node_nns, T_f, thresh, np_batch, True) for np_batch in batches])
+    pool = Pool(n_workers) # 创建进程池对象，并设置进程数
+    batches = np.array_split(node_pairs, n_workers) # 将所有节点对的组合列表分成多个批次，以便并行处理
+    results = pool.map(get_CF_single, [(adj, simi_mat, node_nns, T_f, thresh, np_batch, True) for np_batch in batches]) # 使用进程池并行地计算每个节点对的最近邻CF节点，并将结果汇总为列表
     results = list(zip(*results))
     T_cf = np.add.reduce(results[0])
     adj_cf = np.add.reduce(results[1])
@@ -211,33 +211,33 @@ def get_CF_single(params):
     """ single process for getting CF edges """
     adj, simi_mat, node_nns, T_f, thresh, node_pairs, verbose = params
 
-    T_cf = np.zeros(adj.shape)
+    T_cf = np.zeros(adj.shape) # 初始化全0矩阵
     adj_cf = np.zeros(adj.shape)
     edges_cf_t0 = []
     edges_cf_t1 = []
     c = 0
-    for a, b in node_pairs:
+    for a, b in node_pairs: # 遍历所有节点对
         # for each node pair (a,b), find the nearest node pair (c,d)
-        nns_a = node_nns[a]
+        nns_a = node_nns[a] # 获取节点a的最近邻索引
         nns_b = node_nns[b]
         i, j = 0, 0
         while i < len(nns_a)-1 and j < len(nns_b)-1:
-            if simi_mat[a, nns_a[i]] + simi_mat[b, nns_b[j]] > 2 * thresh:
-                T_cf[a, b] = T_f[a, b]
-                adj_cf[a, b] = adj[a, b]
+            if simi_mat[a, nns_a[i]] + simi_mat[b, nns_b[j]] > 2 * thresh: # 如果节点a和节点b到它们各自的最近邻节点的距离之和大于2倍的阈值
+                T_cf[a, b] = T_f[a, b] # 将CF矩阵中节点a和节点b的元素设置为T矩阵中相应元素的值
+                adj_cf[a, b] = adj[a, b] # 将CF邻接矩阵中节点a和节点b的元素设置为邻接矩阵中相应元素的值
                 break
-            if T_f[nns_a[i], nns_b[j]] != T_f[a, b]:
-                T_cf[a, b] = 1 - T_f[a, b] # T_f[nns_a[i], nns_b[j]] when treatment not binary
-                adj_cf[a, b] = adj[nns_a[i], nns_b[j]]
-                if T_cf[a, b] == 0:
-                    edges_cf_t0.append([nns_a[i], nns_b[j]])
+            if T_f[nns_a[i], nns_b[j]] != T_f[a, b]: # 如果节点a和节点b的最近邻节点nns_a[i]和nns_b[j]的干预矩阵（社区共现）标签不同
+                T_cf[a, b] = 1 - T_f[a, b] # T_f[nns_a[i], nns_b[j]] when treatment not binary 将CF矩阵中节点a和节点b的元素设置为1减去T_f矩阵中相应元素的值
+                adj_cf[a, b] = adj[nns_a[i], nns_b[j]] # 将CF邻接矩阵中节点a和节点b的元素设置为邻接矩阵中最近邻节点nns_a[i]和nns_b[j]之间的连接关系
+                if T_cf[a, b] == 0: # 如果CF矩阵中节点a和节点b的元素为0
+                    edges_cf_t0.append([nns_a[i], nns_b[j]]) # 将最近邻节点nns_a[i]和nns_b[j]之间的连接关系添加到CF边列表中
                 else:
                     edges_cf_t1.append([nns_a[i], nns_b[j]])
                 break
-            if simi_mat[a, nns_a[i+1]] < simi_mat[b, nns_b[j+1]]:
-                i += 1
+            if simi_mat[a, nns_a[i+1]] < simi_mat[b, nns_b[j+1]]: # 如果节点a到其下一个最近邻节点的距离小于节点b到其下一个最近邻节点的距离
+                i += 1 # 将i加1，即遍历节点a的下一个最近邻节点
             else:
-                j += 1
+                j += 1 # 将j加1，即遍历节点b的下一个最近邻节点
         c += 1
         if verbose and c % 20000 == 0:
             print(f'{c} / {len(node_pairs)} done')

@@ -106,7 +106,7 @@ def load_data(args, logger):
         if args.dataset in ['cora', 'citeseer', 'pubmed']:
             # adj matrix (with self-loop): sp.csr_matrix
             adj_label = pickle.load(open(f'{path}{ds}_adj.pkl', 'rb'))
-            # node features: sp.lil_matrix
+            # node features: sp.lil_matrix（一种系数矩阵类型，使用list of list格式存储矩阵，可以高效进行动态修改）
             features = pickle.load(open(f'{path}{ds}_feat.pkl', 'rb'))
             if isinstance(features, sp.lil.lil_matrix):
                 features= features.toarray()
@@ -144,34 +144,34 @@ def mask_test_edges(adj_orig, val_frac, test_frac, filename, logger):
     # Remove diagonal elements
     adj = deepcopy(adj_orig)
     # set diag as all zero
-    adj.setdiag(0)
-    adj.eliminate_zeros()
+    adj.setdiag(0) # 将对角线元素置0
+    adj.eliminate_zeros() # 将矩阵中的0元素进行消除。稀疏矩阵通常包含很多0元素，通过消除可以减少矩阵的存储空间和计算复杂度
     # Check that diag is zero:
-    assert np.diag(adj.todense()).sum() == 0
+    assert np.diag(adj.todense()).sum() == 0 #检查修改后的矩阵的对角线元素是否全部为0，这个检查确保对角线元素已经全部成功设置为0
 
-    adj_triu = sp.triu(adj, 1)
+    adj_triu = sp.triu(adj, 1) # 将原始矩阵转换为上三角矩阵
     # adj_tuple = sparse_to_tuple(adj_triu)
     # edges = adj_tuple[0]
-    edges = sparse_to_tuple(adj_triu)[0]
-    edges_all = sparse_to_tuple(adj)[0]
-    num_test = int(np.floor(edges.shape[0] * test_frac))
-    num_val = int(np.floor(edges.shape[0] * val_frac))
+    edges = sparse_to_tuple(adj_triu)[0] # 将上三角矩阵转换为稀疏矩阵的坐标表示形式，并提取出其中的边信息
+    edges_all = sparse_to_tuple(adj)[0] # 将原始矩阵adj转换为稀疏矩阵的坐标表示形式，并提取出所有的边信息
+    num_test = int(np.floor(edges.shape[0] * test_frac)) # 计算测试集合中的边数，下取整
+    num_val = int(np.floor(edges.shape[0] * val_frac))# 计算验证集合中的边数，下取整
 
-    all_edge_idx = list(range(edges.shape[0]))
-    np.random.shuffle(all_edge_idx)
-    val_edge_idx = all_edge_idx[:num_val]
-    test_edge_idx = all_edge_idx[num_val:(num_val + num_test)]
-    test_edges = edges[test_edge_idx]
-    val_edges = edges[val_edge_idx]
-    train_edges = np.delete(edges, np.hstack([test_edge_idx, val_edge_idx]), axis=0)
+    all_edge_idx = list(range(edges.shape[0])) # 创建一个包含所有连边索引的列表
+    np.random.shuffle(all_edge_idx) # 打乱
+    val_edge_idx = all_edge_idx[:num_val] # 提取验证集边索引
+    test_edge_idx = all_edge_idx[num_val:(num_val + num_test)] # 提取测试集边索引
+    test_edges = edges[test_edge_idx] # 提取测试集边
+    val_edges = edges[val_edge_idx] # 提取验证集边
+    train_edges = np.delete(edges, np.hstack([test_edge_idx, val_edge_idx]), axis=0) # 从边中删除测试集边和验证集边，得到训练集边
 
-    noedge_mask = np.ones(adj.shape) - adj_orig
-    noedges = np.asarray(sp.triu(noedge_mask, 1).nonzero()).T
-    all_edge_idx = list(range(noedges.shape[0]))
-    np.random.shuffle(all_edge_idx)
-    val_edge_idx = all_edge_idx[:num_val]
+    noedge_mask = np.ones(adj.shape) - adj_orig # 创建了一个与原始邻接矩阵形状相同的全1矩阵，并与原始邻接矩阵进行减法操作，得到节点间不存在边的掩码矩阵
+    noedges = np.asarray(sp.triu(noedge_mask, 1).nonzero()).T # 使用上三角掩码矩阵将节点间不存在边的信息提取出来，并转换为坐标表示形式
+    all_edge_idx = list(range(noedges.shape[0])) # 创建了一个包含所有节点间不存在边索引的列表
+    np.random.shuffle(all_edge_idx) # 打乱
+    val_edge_idx = all_edge_idx[:num_val] # 验证集合和测试集合中不存在边索引
     test_edge_idx = all_edge_idx[num_val:(num_val + num_test)]
-    test_edges_false = noedges[test_edge_idx]
+    test_edges_false = noedges[test_edge_idx] # 验证集合和测试集合中不存在边
     val_edges_false = noedges[val_edge_idx]
     # following lines for getting the no-edges are substituted with above lines
     """
@@ -213,7 +213,7 @@ def mask_test_edges(adj_orig, val_frac, test_frac, filename, logger):
         val_edges_false.append([idx_i, idx_j])
     val_edges_false = np.asarray(val_edges_false).astype("int32")
     """
-    def ismember(a, b, tol=5):
+    def ismember(a, b, tol=5): # 判断两个矩阵是否存在相同的行
         rows_close = np.all(np.round(a - b[:, None], tol) == 0, axis=-1)
         return np.any(rows_close)
     assert ~ismember(test_edges_false, edges_all)
@@ -222,21 +222,21 @@ def mask_test_edges(adj_orig, val_frac, test_frac, filename, logger):
     assert ~ismember(test_edges, train_edges)
     assert ~ismember(val_edges, test_edges)
 
-    data = np.ones(train_edges.shape[0])
+    data = np.ones(train_edges.shape[0]) # 创建一个长度为训练集中连边（正样本）数量的全1数组
 
     # Re-build adj matrix
     adj_train = sp.csr_matrix((data, (train_edges[:, 0], train_edges[:, 1])), shape=adj.shape)
-    adj_train = adj_train + adj_train.T
-    adj_train.setdiag(1)
+    adj_train = adj_train + adj_train.T # 将邻接矩阵转换为无向图，即将其与对应转置矩阵相加
+    adj_train.setdiag(1) # 将邻接矩阵的对角线元素设置为1，以确保每个节点都和自身相连
 
     # get training node pairs (edges and no-edges)
-    train_mask = np.ones(adj_train.shape)
-    for edges_tmp in [val_edges, val_edges_false, test_edges, test_edges_false]:
+    train_mask = np.ones(adj_train.shape) # 创建一个和训练集对应邻接矩阵形状相同的全1数组，用于表示训练集连边的掩码
+    for edges_tmp in [val_edges, val_edges_false, test_edges, test_edges_false]: # 遍历验证集和测试集中的所有正负样本
         for e in edges_tmp:
-            assert e[0] < e[1]
-        train_mask[edges_tmp.T[0], edges_tmp.T[1]] = 0
+            assert e[0] < e[1] # 节点编号升序
+        train_mask[edges_tmp.T[0], edges_tmp.T[1]] = 0 # 将验证集和测试集的掩码设为0，表示这些边是训练集中的连边
         train_mask[edges_tmp.T[1], edges_tmp.T[0]] = 0
-    train_pairs = np.asarray(sp.triu(train_mask, 1).nonzero()).T
+    train_pairs = np.asarray(sp.triu(train_mask, 1).nonzero()).T # 将掩码转换为稀疏矩阵坐标表示形式，并提取出其中的非0元素坐标。这些坐标表示训练集中所有可能存在的边和非边
 
     # cache files for future use
     pickle.dump((adj_train, train_pairs, val_edges, val_edges_false, test_edges, test_edges_false), open(filename, 'wb'))
@@ -365,6 +365,7 @@ class MultipleOptimizer():
         self.steps += 1
         return lr
 
+# 定义一个用于创建日志记录器logger的函数get_logger(name)：将日志记录器的级别设置为 DEBUG，以便记录所有级别的日志消息。函数返回配置好的日志记录器
 def get_logger(name):
     """ create a nice logger """
     logger = logging.getLogger(name)
